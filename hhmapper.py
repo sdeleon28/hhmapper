@@ -49,6 +49,8 @@ PEDAL_MOTION_CC = 20        # edge/body hits are ghosts if the pedal moved at le
 PEDAL_MOTION_MS = 50        # ...within this many milliseconds before the hit
 CHICK_GHOST_VELOCITY_MAX = 20  # chick double-triggers come in at vel 16..20
 PRE_CHICK_HOLD_MS = 40      # edge/body hits are held this long; a chick arriving meanwhile cancels them
+ZONE_CROSSTALK_MS = 100     # a stroke on one zone makes the other zone fire late (measured 73 ms)...
+ZONE_CROSSTALK_RATIO = 0.5  # ...at a fraction of the velocity; within the window and under the ratio it is a ghost
 
 # Pedal CC value interpretation. Measured on this TD-17 (2026-09-06):
 # value rises as the pedal is pressed, 0 = fully open, 90 = fully closed.
@@ -148,10 +150,11 @@ def classify(note: int, velocity: int, pedal_cc: int, t: float = None):
     return Hit(openness_label(pedal_cc), zone, note, velocity, pedal_cc, t)
 
 
-def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int) -> str:
+def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: Hit = None) -> str:
     """Why this hit should be ignored, or None if it looks real.
 
     pedal_motion: how much the CC moved within the last PEDAL_MOTION_MS.
+    last_stroke: the previous real (or still pending) edge/body hit, for zone crosstalk.
     """
     if hit.zone == "chick":
         if hit.velocity <= CHICK_GHOST_VELOCITY_MAX:
@@ -163,6 +166,10 @@ def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int) -> str:
         return "chick splash"
     if pedal_motion >= PEDAL_MOTION_CC:
         return "pedal moving"
+    if last_stroke is not None and last_stroke.zone != "chick" and last_stroke.zone != hit.zone \
+            and (hit.t - last_stroke.t) * 1000 <= ZONE_CROSSTALK_MS \
+            and hit.velocity <= ZONE_CROSSTALK_RATIO * last_stroke.velocity:
+        return "zone crosstalk"
     return None
 
 
@@ -258,7 +265,8 @@ class State:
                 if hit is None:
                     self.other_notes.appendleft((msg.note, msg.velocity))
                 else:
-                    hit.ghost_reason = ghost_reason(hit, self.last_chick_t, self.pedal_motion(t))
+                    ref = self.pending if self.pending is not None else self.last_hit
+                    hit.ghost_reason = ghost_reason(hit, self.last_chick_t, self.pedal_motion(t), ref)
                     if hit.zone == "chick":
                         if self.pending is not None:
                             if not hit.ghost:
