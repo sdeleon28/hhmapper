@@ -64,6 +64,23 @@ OPEN_MAX = 10    # closedness <= OPEN_MAX   -> open
 # Velocity threshold: at or above this the hit is the hard articulation.
 HIGH_VELOCITY_MIN = 100
 
+# MIDI output. Each label maps to the note GetGood Drums One Kit Wonder (Metal)
+# expects for that articulation, read off its mapping screen on 2026-09-06.
+# Kontakt numbers notes with C3 = 60 (so C-2 = 0). None = don't send.
+OUTPUT_PORT_SUBSTRING = "IAC"      # substring of the MIDI output port (e.g. an IAC bus into Reaper)
+OUTPUT_CHANNEL = 9                  # 0-based, so 9 = MIDI channel 10
+OUTPUT_NOTES = {
+    "tight body": 41,   # F1   Tip Tight
+    "tight edge": 42,   # F#1  Edge Tight
+    "mid body": 43,     # G1   Tip Closed
+    "mid edge": 44,     # G#1  Edge Closed
+    "open body": 46,    # A#1  Open 2
+    "open edge": 47,    # B1   Open 3
+    "pedal chick": 48,  # C2   Pedal
+    # unused for now: 45 (A1, Open 1), 17 (F-1, CC-controlled hat)
+}
+OUTPUT_NOTE_LENGTH_MS = 30          # note_off is sent this long after note_on
+
 # UI
 FIGLET_FONTS = ["ansi_shadow", "big", "doom", "slant", "standard"]  # first that fits wins
 HISTORY_LEN = 12
@@ -152,19 +169,45 @@ def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int) -> str:
 # ---------------------------------------------------------------------------
 # MIDI plumbing
 # ---------------------------------------------------------------------------
-def pick_port(substring: str) -> str:
-    names = mido.get_input_names()
+def pick_port(substring: str, names=None, kind="input") -> str:
+    if names is None:
+        names = mido.get_input_names()
     matches = [n for n in names if substring.lower() in n.lower()]
     if not matches:
-        print(f"No MIDI input matching '{substring}'. Available inputs:")
+        print(f"No MIDI {kind} matching '{substring}'. Available {kind}s:")
         for n in names:
             print(f"  - {n}")
         sys.exit(1)
     return matches[0]
 
 
+class Sender:
+    """Sends mapped notes to the output port. No-op when no port is given."""
+
+    def __init__(self, port_name: str = None):
+        self.port = mido.open_output(port_name) if port_name else None
+
+    def send(self, hit: Hit):
+        if self.port is None:
+            return
+        note = OUTPUT_NOTES.get(hit.label)
+        if note is None:
+            return
+        self.port.send(mido.Message("note_on", channel=OUTPUT_CHANNEL, note=note, velocity=hit.velocity))
+        threading.Timer(
+            OUTPUT_NOTE_LENGTH_MS / 1000,
+            self.port.send,
+            args=[mido.Message("note_off", channel=OUTPUT_CHANNEL, note=note, velocity=0)],
+        ).start()
+
+    def close(self):
+        if self.port is not None:
+            self.port.close()
+
+
 class State:
-    def __init__(self):
+    def __init__(self, sender: Sender = None):
+        self.sender = sender or Sender()
         self.lock = threading.Lock()
         self.pedal_cc = PEDAL_CLOSED_VALUE if CLOSED_IS_HIGH else 0  # assume closed until told otherwise
         self.cc_trail = deque()          # (t, cc) samples within the last PEDAL_MOTION_MS
@@ -181,6 +224,7 @@ class State:
             self.last_hit = hit
             if hit.zone == "chick":
                 self.last_chick_t = hit.t
+            self.sender.send(hit)
         self.dirty = True
 
     def flush(self, now: float = None):
@@ -240,8 +284,8 @@ def run_raw(port_name: str):
             print(msg)
 
 
-def run_plain(port_name: str):
-    state = State()
+def run_plain(port_name: str, out_name: str = None):
+    state = State(Sender(out_name))
     printed = 0
     with mido.open_input(port_name) as port:
         while True:
@@ -325,14 +369,17 @@ def render(state: State, font: str, width: int):
                 str(h.note), str(h.velocity), str(h.cc), "hard" if h.hard else "",
             )
     other = ", ".join(f"{n} v{v}" for n, v in state.other_notes)
-    footer = Text(f"other pads: {other}" if other else "", style="dim")
+    out = state.sender.port.name if state.sender.port else "none (use --out)"
+    if hit is not None and state.sender.port:
+        out += f" · sent note {OUTPUT_NOTES.get(hit.label)}"
+    footer = Text(f"output: {out}" + (f"    other pads: {other}" if other else ""), style="dim")
 
     return Group(label_panel, pedal_line, Panel(table, title="recent hits", border_style="dim"), footer)
 
 
-def run_ui(port_name: str):
+def run_ui(port_name: str, out_name: str = None):
     console = Console()
-    state = State()
+    state = State(Sender(out_name))
     font = pick_font(console.width)
 
     with mido.open_input(port_name, callback=state.feed):
@@ -353,17 +400,20 @@ def main():
     ap.add_argument("--port", default=PORT_NAME_SUBSTRING, help="substring of the MIDI input port name")
     ap.add_argument("--raw", action="store_true", help="print every incoming MIDI message")
     ap.add_argument("--plain", action="store_true", help="one line per hit, no live UI")
+    ap.add_argument("--out", nargs="?", const=OUTPUT_PORT_SUBSTRING, default=None,
+                    help="send mapped notes to this MIDI output (substring); no value = " + OUTPUT_PORT_SUBSTRING)
     args = ap.parse_args()
 
     port_name = pick_port(args.port)
+    out_name = pick_port(args.out, mido.get_output_names(), "output") if args.out else None
     if args.raw:
         print(f"Listening on: {port_name}  (Ctrl+C to quit)")
         run_raw(port_name)
     elif args.plain:
         print(f"Listening on: {port_name}  (Ctrl+C to quit)")
-        run_plain(port_name)
+        run_plain(port_name, out_name)
     else:
-        run_ui(port_name)
+        run_ui(port_name, out_name)
 
 
 if __name__ == "__main__":
