@@ -49,8 +49,10 @@ PEDAL_MOTION_CC = 20        # edge/body hits are ghosts if the pedal moved at le
 PEDAL_MOTION_MS = 50        # ...within this many milliseconds before the hit
 CHICK_GHOST_VELOCITY_MAX = 20  # chick double-triggers come in at vel 16..20
 PRE_CHICK_HOLD_MS = 40      # edge/body hits are held this long; a chick arriving meanwhile cancels them
-ZONE_CROSSTALK_MS = 100     # a stroke on one zone makes the other zone fire late (measured 73 ms)...
-ZONE_CROSSTALK_RATIO = 0.5  # ...at a fraction of the velocity; within the window and under the ratio it is a ghost
+# A hard stroke on one zone makes the other zone fire late: measured 42 ms after the stroke at
+# 70..76 % of its velocity, and 73..93 ms after at 35..56 %. Real strokes on the other zone
+# never come that fast and soft. (window ms, max velocity ratio) tiers, checked in order.
+ZONE_CROSSTALK = [(50, 0.85), (100, 0.65)]
 
 # Pedal CC value interpretation. Measured on this TD-17 (2026-09-06):
 # value rises as the pedal is pressed, 0 = fully open, 90 = fully closed.
@@ -166,10 +168,13 @@ def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: 
         return "chick splash"
     if pedal_motion >= PEDAL_MOTION_CC:
         return "pedal moving"
-    if last_stroke is not None and last_stroke.zone != "chick" and last_stroke.zone != hit.zone \
-            and (hit.t - last_stroke.t) * 1000 <= ZONE_CROSSTALK_MS \
-            and hit.velocity <= ZONE_CROSSTALK_RATIO * last_stroke.velocity:
-        return "zone crosstalk"
+    if last_stroke is not None and last_stroke.zone != "chick" and last_stroke.zone != hit.zone:
+        dt = (hit.t - last_stroke.t) * 1000
+        for window_ms, ratio in ZONE_CROSSTALK:
+            if dt <= window_ms:
+                if hit.velocity <= ratio * last_stroke.velocity:
+                    return "zone crosstalk"
+                break
     return None
 
 
