@@ -1,15 +1,22 @@
-"""hhmapper prototype, iteration 1: console output only.
+"""hhmapper: TD-17 -> GetGood Drums, the whole kit.
 
-Listens to the TD-17, tracks the hi-hat pedal CC, and on every hi-hat hit
-shows the combination of openness (tight / mid / open) and zone (edge / body).
+Listens to the TD-17, tracks the hi-hat pedal CC, turns every stroke into an
+articulation (hi-hat openness x zone, snare head / rimshot / cross-stick, toms,
+cymbals) and sends the note GetGood Drums expects for it, in the GroupCtl map
+(see OUTPUT_NOTES), to an IAC bus into Bitwig.
 
 Usage (from the project venv):
-    .venv/bin/python hhmapper.py            # live Rich UI with huge label
-    .venv/bin/python hhmapper.py --plain    # one line per hit, no UI
-    .venv/bin/python hhmapper.py --raw      # dump every incoming MIDI message
-    .venv/bin/python hhmapper.py --port X   # pick a port by substring (default: TD-17)
+    .venv/bin/python hhmapper.py --out IAC   # live Rich UI, sending to the first IAC bus
+    .venv/bin/python hhmapper.py             # live UI, no output
+    .venv/bin/python hhmapper.py --plain     # one line per hit, no UI
+    .venv/bin/python hhmapper.py --raw       # dump every incoming MIDI message
+    .venv/bin/python hhmapper.py --probe --out IAC   # play every output note in turn, to check the map by ear
+    .venv/bin/python hhmapper.py --port X    # pick an input port by substring (default: TD-17)
+    .venv/bin/python hhmapper.py --kit FILE  # zone -> input notes (default: drumhero's ~/.config/drumhero/kit.json)
 """
 import argparse
+import json
+import os
 import sys
 import threading
 import time
@@ -31,12 +38,64 @@ PORT_NAME_SUBSTRING = "TD-17"
 
 HH_CC = 4  # hi-hat pedal position controller (CC#4 on Roland modules)
 
-# TD-17 hi-hat notes. The module already switches notes depending on pedal
-# state, so each zone has two possible note numbers.
-# All confirmed against the actual module on 2026-09-06.
-EDGE_NOTES = {22, 26}   # 22 = closed edge, 26 = open edge
-BODY_NOTES = {42, 46}   # 42 = closed bow,  46 = open bow
-PEDAL_NOTE = 44         # foot chick (pedal close)
+# Input notes per zone of the kit. The defaults are the TD-17 factory numbers, confirmed
+# on the module on 2026-09-06/07; drumhero's kit wizard saves the same zone keys to
+# ~/.config/drumhero/kit.json and load_kit() prefers that file, so both programs agree.
+KIT_PATH = os.path.expanduser("~/.config/drumhero/kit.json")
+FACTORY_KIT = {
+    "kick": [36, 35], "snare": [38], "snare_rim": [40], "snare_xstick": [37],
+    "hihat": [42, 46], "hihat_edge": [22, 26], "hihat_pedal": [44],
+    "crash": [49], "crash_edge": [55], "crash2": [57], "crash2_edge": [52],
+    "tom1": [48], "tom1_rim": [50], "floor": [43, 45], "floor_rim": [58, 47],
+    "ride": [51], "ride_edge": [59], "ride_bell": [53],
+}
+ZONE_LABELS = {
+    "kick": "kick", "snare": "snare head", "snare_rim": "snare rim", "snare_xstick": "snare cross-stick",
+    "crash": "crash L bow", "crash_edge": "crash L edge", "crash2": "crash R bow", "crash2_edge": "crash R edge",
+    "tom1": "rack tom", "tom1_rim": "rack tom rim", "floor": "floor tom", "floor_rim": "floor tom rim",
+    "ride": "ride bow", "ride_edge": "ride edge", "ride_bell": "ride bell",
+}
+
+
+def load_kit(path: str = KIT_PATH) -> dict:
+    """Zone -> input note numbers. The drumhero kit file on top of the factory table
+    (zones the wizard skipped keep their factory numbers); 37 is always cross-stick."""
+    kit = {k: list(v) for k, v in FACTORY_KIT.items()}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        for k, v in data.items():
+            if k in kit and v:
+                kit[k] = [int(n) for n in v]
+    except (OSError, ValueError):
+        pass
+    return kit
+
+
+KIT = load_kit()
+EDGE_NOTES = BODY_NOTES = NOTE_ZONE = None
+PEDAL_NOTE = None
+
+
+def _rebind_kit():
+    global EDGE_NOTES, BODY_NOTES, PEDAL_NOTE, NOTE_ZONE
+    EDGE_NOTES = set(KIT["hihat_edge"])   # 22 = closed edge, 26 = open edge
+    BODY_NOTES = set(KIT["hihat"])        # 42 = closed bow,  46 = open bow
+    PEDAL_NOTE = KIT["hihat_pedal"][0]    # foot chick (pedal close)
+    NOTE_ZONE = {}                        # input note -> zone key; hi-hat zones go by CC instead
+    for zk, notes in KIT.items():
+        if not zk.startswith("hihat"):
+            for n in notes:
+                NOTE_ZONE.setdefault(n, zk)
+
+
+_rebind_kit()
+
+# Snare rim, from the TD17Remapper Bitwig script: a soft rim hit is a cross-stick, a hard one
+# a rimshot, each with its velocity spread over the full range.
+RIM_SOFT_HARD_THRESHOLD = 50   # rim velocity below this = cross-stick
+RIMSHOT_VELOCITY_MIN = 99      # rimshots are sent at this velocity or more
+SNARE_HEAD_VELOCITY_MAX = 98   # head hits never reach the rimshot velocity band
 
 # Ghost-hit filtering. Measured on 2026-09-06 while stomping the pedal:
 #   - ~30 ms BEFORE the chick: note 46 at vel 9..14 with the pedal still at 0
@@ -48,6 +107,7 @@ CHICK_SPLASH_MS = 60        # edge/body hits this soon after a chick are ghosts
 PEDAL_MOTION_CC = 20        # edge/body hits are ghosts if the pedal moved at least this much...
 PEDAL_MOTION_MS = 50        # ...within this many milliseconds before the hit
 CHICK_GHOST_VELOCITY_MAX = 20  # chick double-triggers come in at vel 16..20
+KIT_VELOCITY_MIN = 8        # other pads: below this nothing is sent (sticks resting on a pad read 4..14)
 PRE_CHICK_HOLD_MS = 40      # edge/body hits are held this long; a chick arriving meanwhile cancels them
 # A hard stroke on one zone makes the other zone fire late: measured 42 ms after the stroke at
 # 70..76 % of its velocity, and 73..93 ms after at 35..56 %. Real strokes on the other zone
@@ -68,27 +128,48 @@ OPEN_MAX = 10    # closedness <= OPEN_MAX   -> open
 # Velocity threshold: at or above this the hit is the hard articulation.
 HIGH_VELOCITY_MIN = 100
 
-# MIDI output. Each label maps to the note GetGood Drums One Kit Wonder (Metal)
-# expects for that articulation, read off its mapping screen on 2026-09-06.
-# Kontakt numbers notes with C3 = 60 (so C-2 = 0). None = don't send.
-OUTPUT_PORT_SUBSTRING = "IAC"      # substring of the MIDI output port (e.g. an IAC bus into Reaper)
+# MIDI output: the GroupCtl map (~/js-projects/bitwig-maps/GroupCtl, GgdDrumMap.java), the
+# 16 voices the Launchpad editor draws on "ggd" tracks and that the songs already use.
+# Bitwig and Kontakt both call MIDI 60 "C3". Articulations the editor has no row for
+# (closed hat, pedal chick, cross-stick) use the notes of the Modern & Massive 2 map
+# preset "gruopctl" (~/Music/GGD/Modern & Massive 2/Presets/Map). None = don't send.
+#   Kick 1 60  Kick 2 62  Snare 1 61  Snare 2 63  HH1 55  HH2 59  HH3 56  HH4 54
+#   Tom 1 66  Tom 2 68  Tom 3 71  Ride 73  Ride Bell 75  China 77  Crash 1 80  Crash 2 82
+OUTPUT_PORT_SUBSTRING = "IAC"      # substring of the MIDI output port (an IAC bus into Bitwig)
 OUTPUT_CHANNEL = 9                  # 0-based, so 9 = MIDI channel 10
 OUTPUT_NOTES = {
-    "tight body": 41,   # F1   Tip Tight
-    "tight edge": 42,   # F#1  Edge Tight
-    "mid body": 43,     # G1   Tip Closed
-    "mid edge": 44,     # G#1  Edge Closed
-    "open body": 46,    # A#1  Open 2
-    "open edge": 47,    # B1   Open 3
-    "pedal chick": 48,  # C2   Pedal
-    # unused for now: 45 (A1, Open 1), 17 (F-1, CC-controlled hat)
+    # hi-hat: openness x zone
+    "tight body": 55,        # HH1  Tight Tip
+    "tight edge": 55,        # HH1  Tight Tip (M&M2 has Tight Edge at 10, outside the editor)
+    "mid body": 59,          # HH2  closed (the M&M2 preset file has Closed Tip at 53; see README)
+    "mid edge": 59,          # HH2
+    "open body": 54,         # HH4  Open 1
+    "open edge": 56,         # HH3  Open 2, the edge rings more open
+    "pedal chick": 52,       # M&M2 Pedal Chick (no editor row)
+    # drums
+    "kick": 60,              # Kick 1
+    "snare head": 61,        # Snare 1  centre
+    "snare rimshot": 63,     # Snare 2  (rim hit at or above RIM_SOFT_HARD_THRESHOLD)
+    "snare cross-stick": 30, # M&M2 Cross Stick (no editor row)
+    "rack tom": 66,          # Tom 1
+    "rack tom rim": 66,      # Tom 1 (no rim articulation)
+    "floor tom": 71,         # Tom 3
+    "floor tom rim": 71,     # Tom 3
+    # cymbals
+    "ride bow": 73,          # Ride
+    "ride edge": 73,         # Ride
+    "ride bell": 75,         # Ride Bell
+    "crash L bow": 80,       # Crash 1
+    "crash L edge": 80,      # Crash 1
+    "crash R bow": 82,       # Crash 2
+    "crash R edge": 82,      # Crash 2 (China is 77 if you would rather have it here)
 }
 OUTPUT_NOTE_LENGTH_MS = 30          # note_off is sent this long after note_on
 
 # UI
 FIGLET_FONTS = ["ansi_shadow", "big", "doom", "slant", "standard"]  # first that fits wins
 HISTORY_LEN = 12
-OPENNESS_COLORS = {"tight": "red", "mid": "yellow", "open": "green", "pedal": "cyan"}
+OPENNESS_COLORS = {"tight": "red", "mid": "yellow", "open": "green", "pedal": "cyan", "kit": "magenta"}
 
 
 # ---------------------------------------------------------------------------
@@ -108,13 +189,14 @@ def openness_label(cc_value: int) -> str:
 
 
 def zone_label(note: int):
+    """edge / body / pedal for the hi-hat, the zone key for the rest of the kit, None if unknown."""
     if note in EDGE_NOTES:
         return "edge"
     if note in BODY_NOTES:
         return "body"
     if note == PEDAL_NOTE:
         return "pedal"
-    return None
+    return NOTE_ZONE.get(note)
 
 
 @dataclass
@@ -128,8 +210,31 @@ class Hit:
     ghost_reason: str = None   # None = real hit; otherwise why it was discarded
 
     @property
+    def hihat(self) -> bool:
+        return self.zone in ("edge", "body", "chick")
+
+    @property
     def label(self) -> str:
-        return "pedal chick" if self.zone == "chick" else f"{self.openness} {self.zone}"
+        if self.zone == "chick":
+            return "pedal chick"
+        if self.zone in ("edge", "body"):
+            return f"{self.openness} {self.zone}"
+        if self.zone == "snare_rim":
+            return "snare rimshot" if self.velocity >= RIM_SOFT_HARD_THRESHOLD else "snare cross-stick"
+        return ZONE_LABELS.get(self.zone, self.zone)
+
+    @property
+    def out_velocity(self) -> int:
+        """Velocity sent: rim hits are spread over the cross-stick or rimshot band, head
+        hits stay under the rimshot band (TD17Remapper's rule)."""
+        v = self.velocity
+        if self.zone == "snare_rim":
+            if v < RIM_SOFT_HARD_THRESHOLD:
+                return _scale(v, 1, RIM_SOFT_HARD_THRESHOLD - 1, 1, 127)
+            return _scale(v, RIM_SOFT_HARD_THRESHOLD, 127, RIMSHOT_VELOCITY_MIN, 127)
+        if self.zone == "snare":
+            return min(v, SNARE_HEAD_VELOCITY_MAX)
+        return v
 
     @property
     def hard(self) -> bool:
@@ -138,6 +243,11 @@ class Hit:
     @property
     def ghost(self) -> bool:
         return self.ghost_reason is not None
+
+
+def _scale(v, in_min, in_max, out_min, out_max):
+    out = out_min + round((v - in_min) * (out_max - out_min) / (in_max - in_min))
+    return max(1, min(127, out))
 
 
 def classify(note: int, velocity: int, pedal_cc: int, t: float = None):
@@ -149,7 +259,9 @@ def classify(note: int, velocity: int, pedal_cc: int, t: float = None):
         return None
     if zone == "pedal":
         return Hit("pedal", "chick", note, velocity, pedal_cc, t)
-    return Hit(openness_label(pedal_cc), zone, note, velocity, pedal_cc, t)
+    if zone in ("edge", "body"):
+        return Hit(openness_label(pedal_cc), zone, note, velocity, pedal_cc, t)
+    return Hit("kit", zone, note, velocity, pedal_cc, t)
 
 
 def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: Hit = None) -> str:
@@ -162,6 +274,8 @@ def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: 
         if hit.velocity <= CHICK_GHOST_VELOCITY_MAX:
             return "soft chick"
         return None
+    if not hit.hihat:
+        return "too soft" if hit.velocity < KIT_VELOCITY_MIN else None
     if hit.velocity <= GHOST_VELOCITY_MAX:
         return "too soft"
     if last_chick_t is not None and (hit.t - last_chick_t) * 1000 <= CHICK_SPLASH_MS:
@@ -205,7 +319,10 @@ class Sender:
         note = OUTPUT_NOTES.get(hit.label)
         if note is None:
             return
-        self.port.send(mido.Message("note_on", channel=OUTPUT_CHANNEL, note=note, velocity=hit.velocity))
+        self.send_note(note, hit.out_velocity)
+
+    def send_note(self, note: int, velocity: int):
+        self.port.send(mido.Message("note_on", channel=OUTPUT_CHANNEL, note=note, velocity=velocity))
         threading.Timer(
             OUTPUT_NOTE_LENGTH_MS / 1000,
             self.port.send,
@@ -225,6 +342,7 @@ class State:
         self.cc_trail = deque()          # (t, cc) samples within the last PEDAL_MOTION_MS
         self.last_chick_t = None
         self.last_hit = None             # last REAL hit (ghosts never land here)
+        self.last_hat_hit = None         # last real hi-hat stick hit, the zone-crosstalk reference
         self.history = deque(maxlen=HISTORY_LEN)   # real and ghost hits, for the table
         self.other_notes = deque(maxlen=4)
         self.pending = None              # edge/body hit waiting out PRE_CHICK_HOLD_MS
@@ -236,6 +354,8 @@ class State:
             self.last_hit = hit
             if hit.zone == "chick":
                 self.last_chick_t = hit.t
+            elif hit.hihat:
+                self.last_hat_hit = hit
             self.sender.send(hit)
         self.dirty = True
 
@@ -270,9 +390,11 @@ class State:
                 if hit is None:
                     self.other_notes.appendleft((msg.note, msg.velocity))
                 else:
-                    ref = self.pending if self.pending is not None else self.last_hit
+                    ref = self.pending if self.pending is not None else self.last_hat_hit
                     hit.ghost_reason = ghost_reason(hit, self.last_chick_t, self.pedal_motion(t), ref)
-                    if hit.zone == "chick":
+                    if not hit.hihat:
+                        self._commit(hit)             # drums and cymbals: no hold, no pedal rules
+                    elif hit.zone == "chick":
                         if self.pending is not None:
                             if not hit.ghost:
                                 self.pending.ghost_reason = "pre-chick"
@@ -305,7 +427,7 @@ def run_plain(port_name: str, out_name: str = None):
             for msg in port.iter_pending():
                 state.feed(msg)
                 if msg.type == "note_on" and msg.velocity > 0 and zone_label(msg.note) is None:
-                    print(f"{'':<22}(note {msg.note} vel {msg.velocity}, not a hi-hat note)")
+                    print(f"{'':<22}(note {msg.note} vel {msg.velocity}, not in the kit file)")
             state.flush()
             with state.lock:
                 new = list(state.history)[: len(state.history) - printed]
@@ -315,8 +437,26 @@ def run_plain(port_name: str, out_name: str = None):
                 if hit.ghost:
                     print(f"{'':<22}{extra}  ghost: {hit.ghost_reason}")
                 else:
-                    print(f"{hit.label:<22}{extra}")
+                    print(f"{hit.label:<22}{extra}  -> note {OUTPUT_NOTES.get(hit.label)} vel {hit.out_velocity}")
             time.sleep(0.002)
+
+
+def run_probe(out_name: str, gap_s: float = 0.9):
+    """Play every output note once, printing its label, so the map can be checked by ear
+    in Bitwig: each line should sound like what it says."""
+    sender = Sender(out_name)
+    print(f"Sending to: {sender.port.name}  (Ctrl+C to stop)")
+    seen = set()
+    for label, note in OUTPUT_NOTES.items():
+        if note is None:
+            print(f"{label:<20} (not mapped)")
+            continue
+        same = f"  (same note as {next(l for l, n in OUTPUT_NOTES.items() if n == note)})" if note in seen else ""
+        seen.add(note)
+        print(f"{label:<20} note {note:3d}{same}", flush=True)
+        sender.send_note(note, 110)
+        time.sleep(gap_s)
+    sender.close()
 
 
 def figlet(text: str, font: str) -> str:
@@ -327,7 +467,7 @@ def figlet(text: str, font: str) -> str:
 
 
 def pick_font(console_width: int) -> str:
-    probe = ["TIGHT BODY", "PEDAL CHICK"]
+    probe = ["TIGHT BODY", "PEDAL CHICK", "SNARE CROSS-STICK", "FLOOR TOM RIM"]
     for font in FIGLET_FONTS:
         w = max(len(l) for t in probe for l in pyfiglet.figlet_format(t, font=font).splitlines())
         if w <= console_width - 4:
@@ -384,8 +524,8 @@ def render(state: State, font: str, width: int):
     other = ", ".join(f"{n} v{v}" for n, v in state.other_notes)
     out = state.sender.port.name if state.sender.port else "none (use --out)"
     if hit is not None and state.sender.port:
-        out += f" · sent note {OUTPUT_NOTES.get(hit.label)}"
-    footer = Text(f"output: {out}" + (f"    other pads: {other}" if other else ""), style="dim")
+        out += f" · sent note {OUTPUT_NOTES.get(hit.label)} vel {hit.out_velocity}"
+    footer = Text(f"output: {out}" + (f"    unknown notes: {other}" if other else ""), style="dim")
 
     return Group(label_panel, pedal_line, Panel(table, title="recent hits", border_style="dim"), footer)
 
@@ -415,10 +555,20 @@ def main():
     ap.add_argument("--plain", action="store_true", help="one line per hit, no live UI")
     ap.add_argument("--out", nargs="?", const=OUTPUT_PORT_SUBSTRING, default=None,
                     help="send mapped notes to this MIDI output (substring); no value = " + OUTPUT_PORT_SUBSTRING)
+    ap.add_argument("--kit", default=KIT_PATH, help="zone -> input notes JSON (drumhero's kit file)")
+    ap.add_argument("--probe", action="store_true", help="play every output note in turn with its label (needs --out)")
     args = ap.parse_args()
 
-    port_name = pick_port(args.port)
+    if args.kit != KIT_PATH:
+        globals()["KIT"] = load_kit(args.kit)
+        _rebind_kit()
     out_name = pick_port(args.out, mido.get_output_names(), "output") if args.out else None
+    if args.probe:
+        if not out_name:
+            sys.exit("--probe needs --out")
+        run_probe(out_name)
+        return
+    port_name = pick_port(args.port)
     if args.raw:
         print(f"Listening on: {port_name}  (Ctrl+C to quit)")
         run_raw(port_name)
