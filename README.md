@@ -7,11 +7,16 @@ crashes. Output notes follow the GroupCtl map, so live playing, the drumhero gam
 and the songs edited with the Launchpad editor all hit the same sounds.
 
 ```
-.venv/bin/python hhmapper.py --out IAC          # live UI, sending to the first IAC bus
-.venv/bin/python hhmapper.py --probe --out IAC  # play every output note with its label: check the map by ear
+.venv/bin/python hhmapper.py --out              # live UI; creates the virtual MIDI port "hhmapper"
+.venv/bin/python hhmapper.py --out IAC          # ...or send through an existing port (substring)
+.venv/bin/python hhmapper.py --probe --out      # play every output note with its label: check the map by ear
 .venv/bin/python hhmapper.py --plain            # one line per hit
 .venv/bin/python hhmapper.py --raw              # every incoming MIDI message
 ```
+
+No IAC bus is needed: `--out` alone creates a CoreMIDI port named "hhmapper" that
+Bitwig lists as a MIDI input while hhmapper runs (add it as a controller or as the
+track input once; Bitwig reconnects to it by name).
 
 Input zones come from drumhero's kit file (`~/.config/drumhero/kit.json`, `--kit`
 to override). The map, the thresholds and where they were measured are in

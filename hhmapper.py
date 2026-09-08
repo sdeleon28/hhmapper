@@ -3,14 +3,15 @@
 Listens to the TD-17, tracks the hi-hat pedal CC, turns every stroke into an
 articulation (hi-hat openness x zone, snare head / rimshot / cross-stick, toms,
 cymbals) and sends the note GetGood Drums expects for it, in the GroupCtl map
-(see OUTPUT_NOTES), to an IAC bus into Bitwig.
+(see OUTPUT_NOTES), through a virtual MIDI port Bitwig sees as a device.
 
 Usage (from the project venv):
-    .venv/bin/python hhmapper.py --out IAC   # live Rich UI, sending to the first IAC bus
+    .venv/bin/python hhmapper.py --out       # live Rich UI, sending through the virtual port "hhmapper"
+    .venv/bin/python hhmapper.py --out IAC   # ...or through an existing port (substring), e.g. an IAC bus
     .venv/bin/python hhmapper.py             # live UI, no output
     .venv/bin/python hhmapper.py --plain     # one line per hit, no UI
     .venv/bin/python hhmapper.py --raw       # dump every incoming MIDI message
-    .venv/bin/python hhmapper.py --probe --out IAC   # play every output note in turn, to check the map by ear
+    .venv/bin/python hhmapper.py --probe --out   # play every output note in turn, to check the map by ear
     .venv/bin/python hhmapper.py --port X    # pick an input port by substring (default: TD-17)
     .venv/bin/python hhmapper.py --kit FILE  # zone -> input notes (default: drumhero's ~/.config/drumhero/kit.json)
 """
@@ -135,7 +136,7 @@ HIGH_VELOCITY_MIN = 100
 # preset "gruopctl" (~/Music/GGD/Modern & Massive 2/Presets/Map). None = don't send.
 #   Kick 1 60  Kick 2 62  Snare 1 61  Snare 2 63  HH1 55  HH2 59  HH3 56  HH4 54
 #   Tom 1 66  Tom 2 68  Tom 3 71  Ride 73  Ride Bell 75  China 77  Crash 1 80  Crash 2 82
-OUTPUT_PORT_SUBSTRING = "IAC"      # substring of the MIDI output port (an IAC bus into Bitwig)
+OUTPUT_VIRTUAL_NAME = "hhmapper"    # the virtual CoreMIDI port hhmapper creates; Bitwig sees it as a MIDI input
 OUTPUT_CHANNEL = 9                  # 0-based, so 9 = MIDI channel 10
 OUTPUT_NOTES = {
     # hi-hat: openness x zone
@@ -308,10 +309,12 @@ def pick_port(substring: str, names=None, kind="input") -> str:
 
 
 class Sender:
-    """Sends mapped notes to the output port. No-op when no port is given."""
+    """Sends mapped notes to the output port. No-op when no port is given.
+    virtual=True creates a CoreMIDI port of that name (no IAC bus needed): Bitwig lists
+    it as a MIDI input device as long as hhmapper runs, and reconnects to it by name."""
 
-    def __init__(self, port_name: str = None):
-        self.port = mido.open_output(port_name) if port_name else None
+    def __init__(self, port_name: str = None, virtual: bool = False):
+        self.port = mido.open_output(port_name, virtual=virtual) if port_name else None
 
     def send(self, hit: Hit):
         if self.port is None:
@@ -419,8 +422,8 @@ def run_raw(port_name: str):
             print(msg)
 
 
-def run_plain(port_name: str, out_name: str = None):
-    state = State(Sender(out_name))
+def run_plain(port_name: str, out_name: str = None, virtual: bool = False):
+    state = State(Sender(out_name, virtual))
     printed = 0
     with mido.open_input(port_name) as port:
         while True:
@@ -441,10 +444,12 @@ def run_plain(port_name: str, out_name: str = None):
             time.sleep(0.002)
 
 
-def run_probe(out_name: str, gap_s: float = 0.9):
+def run_probe(out_name: str, virtual: bool = False, gap_s: float = 0.9):
     """Play every output note once, printing its label, so the map can be checked by ear
     in Bitwig: each line should sound like what it says."""
-    sender = Sender(out_name)
+    sender = Sender(out_name, virtual)
+    if virtual:
+        input("Port ready. Arm a ggd track in Bitwig with input 'hhmapper', then press Enter... ")
     print(f"Sending to: {sender.port.name}  (Ctrl+C to stop)")
     seen = set()
     for label, note in OUTPUT_NOTES.items():
@@ -530,9 +535,9 @@ def render(state: State, font: str, width: int):
     return Group(label_panel, pedal_line, Panel(table, title="recent hits", border_style="dim"), footer)
 
 
-def run_ui(port_name: str, out_name: str = None):
+def run_ui(port_name: str, out_name: str = None, virtual: bool = False):
     console = Console()
-    state = State(Sender(out_name))
+    state = State(Sender(out_name, virtual))
     font = pick_font(console.width)
 
     with mido.open_input(port_name, callback=state.feed):
@@ -553,8 +558,9 @@ def main():
     ap.add_argument("--port", default=PORT_NAME_SUBSTRING, help="substring of the MIDI input port name")
     ap.add_argument("--raw", action="store_true", help="print every incoming MIDI message")
     ap.add_argument("--plain", action="store_true", help="one line per hit, no live UI")
-    ap.add_argument("--out", nargs="?", const=OUTPUT_PORT_SUBSTRING, default=None,
-                    help="send mapped notes to this MIDI output (substring); no value = " + OUTPUT_PORT_SUBSTRING)
+    ap.add_argument("--out", nargs="?", const=OUTPUT_VIRTUAL_NAME, default=None,
+                    help=f"send mapped notes: no value = create the virtual port '{OUTPUT_VIRTUAL_NAME}' that Bitwig "
+                         "sees as a MIDI input; a value = an existing output port (substring), e.g. an IAC bus")
     ap.add_argument("--kit", default=KIT_PATH, help="zone -> input notes JSON (drumhero's kit file)")
     ap.add_argument("--probe", action="store_true", help="play every output note in turn with its label (needs --out)")
     args = ap.parse_args()
@@ -562,11 +568,12 @@ def main():
     if args.kit != KIT_PATH:
         globals()["KIT"] = load_kit(args.kit)
         _rebind_kit()
-    out_name = pick_port(args.out, mido.get_output_names(), "output") if args.out else None
+    virtual = args.out == OUTPUT_VIRTUAL_NAME
+    out_name = args.out if virtual else (pick_port(args.out, mido.get_output_names(), "output") if args.out else None)
     if args.probe:
         if not out_name:
             sys.exit("--probe needs --out")
-        run_probe(out_name)
+        run_probe(out_name, virtual)
         return
     port_name = pick_port(args.port)
     if args.raw:
@@ -574,9 +581,9 @@ def main():
         run_raw(port_name)
     elif args.plain:
         print(f"Listening on: {port_name}  (Ctrl+C to quit)")
-        run_plain(port_name, out_name)
+        run_plain(port_name, out_name, virtual)
     else:
-        run_ui(port_name, out_name)
+        run_ui(port_name, out_name, virtual)
 
 
 if __name__ == "__main__":
