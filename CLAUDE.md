@@ -89,8 +89,8 @@ bow step hearing 42 or 46 assigns both; in the edge step 22 or 26 assigns
 both; 44 is only assigned in the pedal step. A number heard in two steps goes
 to the later zone. Charts still refer to instruments (kick/snare/hihat/crash,
 plus tom1/floor/ride), and an instrument accepts every note of all its zones.
-Menu navigation ignores hits under velocity 25, one action per drum per 220 ms; every hit
-above 15 is still heard, undebounced.
+Menu navigation ignores hits under velocity 25; a drum acts on its first hit and again only
+after 220 ms of silence, so a roll is one press; every hit above 15 is still heard.
 
 ## The rest of the kit: output map (hhmapper, 2026-09-07)
 
