@@ -40,30 +40,44 @@ Closed (43/44), Open 2/3 (46/47), Pedal (48) in One Kit Wonder, Kontakt C3 = 60.
 | when | note | velocity | how to catch it |
 |---|---|---|---|
 | ~30 ms before the chick, pedal still at CC 0 | 46 | 7..22 | velocity floor |
-| 3..5 ms after the chick, pedal moving fast | 46 | 60..78 | window after chick |
-| up to ~250 ms after the chick, pedal settling | 42 | 30..36 | pedal motion |
-| 42 ms after a hard edge stroke | 42 or 46 | 70..76 % of the stroke | zone crosstalk |
+| 3..8 ms after the chick, pedal moving fast | 46 | 48..94 | window after chick |
+| up to ~250 ms after the chick, pedal settling | 42 | 22..36 | settle window, soft closed note |
+| 42 ms after a hard edge stroke | 42 or 46 | 70..76 % of the stroke | not separable, accepted (see below) |
 | 73..93 ms after an edge stroke, one or two of them, nearly every hard stroke | 42 | 35..56 % of the stroke | zone crosstalk |
+| ~55 ms after a hard bow stroke, rare | 22 | ~40 % of the stroke | zone crosstalk |
 | chick double trigger ~110 ms after a chick | 44 | 16..20 | chick velocity floor |
 
-Softest real stroke measured: velocity 23. Resting sticks on a pad: 4..14.
+**Real strokes that look like ghosts** (measured 2026-09-09 on paradiddles, fast bow/edge
+alternation, chick + stroke together, open hats; the rules must keep all of these):
+
+| gesture | what arrives |
+|---|---|
+| softest real tap | 29 (taps in fast doubles 29..48; a missed tap can read 7..18, lost) |
+| bow tap right after an edge accent (fast alternation) | 42 at 44..90 ms, 63..85 % of the accent |
+| stick landing together with the chick | 44 then, 3..5 ms later, 46 at 113..126 |
+| stick landing just after the chick | 44, the 46 ghost at 3..8 ms, then 42 at 11..52 ms, velocity 56..127 |
+| stroke while the pedal is still opening (CC moving 20+ in 50 ms) | 46 at 116..127 |
+
+Resting sticks on a pad: 4..14.
 
 **Filter rules, identical in both repos** (hhmapper.py constants, drumhero/ghost.py):
 
-- hi-hat stick note with velocity < 25 (hhmapper: <= 15 plus a 40 ms hold that
-  cancels the note if a chick follows; drumhero cannot hold because feedback
-  must be instant, so it uses the higher floor)
-- hi-hat stick note within 60 ms after a chick (44): drop
-- hi-hat stick note while CC4 moved >= 20 within the last 50 ms: drop
-- hi-hat stick note on the other zone than the previous stroke: within 50 ms at
-  <= 85 % of its velocity, or within 100 ms at <= 65 %: drop (zone crosstalk;
-  the reference stays the last real stroke, so chained ghosts fall too)
+- hi-hat stick note with velocity < 25: drop (both repos; hhmapper no longer holds
+  strokes 40 ms for a following chick, that hold cost 40 ms of latency on every stroke)
+- hi-hat stick note within 10 ms after a chick (44) with velocity < 100: drop (chick splash)
+- closed-hat note (42/22) within 250 ms after a chick with velocity <= 40: drop (pedal settling)
+- hi-hat stick note while CC4 moved >= 20 within the last 50 ms, velocity < 50: drop
+- hi-hat stick note on the other zone than the previous stroke, within 95 ms at
+  <= 58 % of its velocity: drop (zone crosstalk; the reference stays the last real
+  stroke, so chained ghosts fall too). The 42 ms / 70..76 % ghost overlaps real
+  taps and is let through on purpose.
 - chick with velocity <= 20: drop (hhmapper)
 - any note with velocity < 8: drop (drumhero)
 
-A change to a threshold goes to both repos and to this section. Suspected open issue:
-these rules may eat fast real strokes (bow/edge alternation, chick + stroke); see
-`../drumhero/ROADMAP.md` item A before tuning.
+A change to a threshold goes to both repos and to this section. Validated 2026-09-09 by
+replaying two recorded takes (306 real strokes) through both filters: no real stroke
+dropped, every ghost above still caught. Record a take with `mido` (timestamps in ms)
+and replay it through `State` / `GhostFilter` before touching a number.
 
 The articulation labels (tight/mid/open x body/edge, pedal chick) are shared
 verbatim: hhmapper's `OUTPUT_NOTES` keys and drumhero's `chart.HH_ARTS` (its

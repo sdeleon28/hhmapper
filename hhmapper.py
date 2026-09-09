@@ -38,6 +38,7 @@ from rich.text import Text
 PORT_NAME_SUBSTRING = "TD-17"
 
 HH_CC = 4  # hi-hat pedal position controller (CC#4 on Roland modules)
+CLOSED_HAT_NOTES = {42, 22}  # the numbers the module picks when its own threshold says closed
 
 # Input notes per zone of the kit. The defaults are the TD-17 factory numbers, confirmed
 # on the module on 2026-09-06/07; drumhero's kit wizard saves the same zone keys to
@@ -99,21 +100,26 @@ RIMSHOT_VELOCITY_MIN = 99      # rimshots are sent at this velocity or more
 SNARE_HEAD_VELOCITY_MAX = 98   # head hits never reach the rimshot velocity band
 
 # Ghost-hit filtering. Measured on 2026-09-06 while stomping the pedal:
-#   - ~30 ms BEFORE the chick: note 46 at vel 9..14 with the pedal still at 0
-#   - 3..5 ms AFTER the chick: note 46 at vel 60..78 with the pedal moving fast
-#   - up to ~250 ms after: note 42 at vel 30..36 while the pedal settles
-# The softest real hit seen so far was vel 23.
-GHOST_VELOCITY_MAX = 15     # edge/body hits at or below this velocity are ghosts
-CHICK_SPLASH_MS = 60        # edge/body hits this soon after a chick are ghosts
+#   - ~30 ms BEFORE the chick: note 46 at vel 7..22 with the pedal still at 0
+#   - 3..8 ms AFTER the chick: note 46 at vel 48..94 with the pedal moving fast
+#   - up to ~250 ms after: note 42 at vel 22..36 while the pedal settles
+# Re-tuned 2026-09-09 on real playing (paradiddles, fast bow/edge alternation, chick +
+# stroke together, open hats): every rule keeps what a real stroke measured there.
+GHOST_VELOCITY_MAX = 24     # edge/body hits at or below this velocity are ghosts (softest real tap: 29)
+CHICK_SPLASH_MS = 10        # edge/body hits this soon after a chick are ghosts...
+CHICK_SPLASH_VELOCITY_MIN = 100  # ...unless this loud: a stick landing with the chick reads 113..126
 PEDAL_MOTION_CC = 20        # edge/body hits are ghosts if the pedal moved at least this much...
-PEDAL_MOTION_MS = 50        # ...within this many milliseconds before the hit
+PEDAL_MOTION_MS = 50        # ...within this many milliseconds before the hit...
+PEDAL_MOTION_VELOCITY_MIN = 50  # ...unless this loud: real strokes while opening read 116..127
+PEDAL_SETTLE_MS = 250       # closed-note hits this long after a chick...
+PEDAL_SETTLE_VELOCITY_MAX = 40  # ...at or below this velocity are the pedal settling (real ones: >= 56)
 CHICK_GHOST_VELOCITY_MAX = 20  # chick double-triggers come in at vel 16..20
 KIT_VELOCITY_MIN = 8        # other pads: below this nothing is sent (sticks resting on a pad read 4..14)
-PRE_CHICK_HOLD_MS = 40      # edge/body hits are held this long; a chick arriving meanwhile cancels them
 # A hard stroke on one zone makes the other zone fire late: measured 42 ms after the stroke at
-# 70..76 % of its velocity, and 73..93 ms after at 35..56 %. Real strokes on the other zone
-# never come that fast and soft. (window ms, max velocity ratio) tiers, checked in order.
-ZONE_CROSSTALK = [(50, 0.85), (100, 0.65)]
+# 70..76 % of its velocity, and 73..93 ms after at 35..56 %. Real bow taps after an edge accent
+# come as close as 44 ms at 63..85 % (fast alternation, 2026-09-09), so only the soft tier is
+# separable; the 42 ms one is accepted. (window ms, max velocity ratio) tiers, checked in order.
+ZONE_CROSSTALK = [(95, 0.58)]
 
 # Pedal CC value interpretation. Measured on this TD-17 (2026-09-06):
 # value rises as the pedal is pressed, 0 = fully open, 90 = fully closed.
@@ -269,7 +275,7 @@ def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: 
     """Why this hit should be ignored, or None if it looks real.
 
     pedal_motion: how much the CC moved within the last PEDAL_MOTION_MS.
-    last_stroke: the previous real (or still pending) edge/body hit, for zone crosstalk.
+    last_stroke: the previous real edge/body hit, for zone crosstalk.
     """
     if hit.zone == "chick":
         if hit.velocity <= CHICK_GHOST_VELOCITY_MAX:
@@ -279,9 +285,14 @@ def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: 
         return "too soft" if hit.velocity < KIT_VELOCITY_MIN else None
     if hit.velocity <= GHOST_VELOCITY_MAX:
         return "too soft"
-    if last_chick_t is not None and (hit.t - last_chick_t) * 1000 <= CHICK_SPLASH_MS:
-        return "chick splash"
-    if pedal_motion >= PEDAL_MOTION_CC:
+    if last_chick_t is not None:
+        since_chick = (hit.t - last_chick_t) * 1000
+        if since_chick <= CHICK_SPLASH_MS and hit.velocity < CHICK_SPLASH_VELOCITY_MIN:
+            return "chick splash"
+        if (since_chick <= PEDAL_SETTLE_MS and hit.velocity <= PEDAL_SETTLE_VELOCITY_MAX
+                and hit.note in CLOSED_HAT_NOTES):
+            return "pedal settling"
+    if pedal_motion >= PEDAL_MOTION_CC and hit.velocity < PEDAL_MOTION_VELOCITY_MIN:
         return "pedal moving"
     if last_stroke is not None and last_stroke.zone != "chick" and last_stroke.zone != hit.zone:
         dt = (hit.t - last_stroke.t) * 1000
@@ -348,7 +359,6 @@ class State:
         self.last_hat_hit = None         # last real hi-hat stick hit, the zone-crosstalk reference
         self.history = deque(maxlen=HISTORY_LEN)   # real and ghost hits, for the table
         self.other_notes = deque(maxlen=4)
-        self.pending = None              # edge/body hit waiting out PRE_CHICK_HOLD_MS
         self.dirty = True
 
     def _commit(self, hit: Hit):
@@ -363,13 +373,8 @@ class State:
         self.dirty = True
 
     def flush(self, now: float = None):
-        """Commit the pending hit once its hold time has passed. Call this regularly."""
-        if now is None:
-            now = time.time()
-        with self.lock:
-            if self.pending is not None and (now - self.pending.t) * 1000 >= PRE_CHICK_HOLD_MS:
-                self._commit(self.pending)
-                self.pending = None
+        """Nothing is held back any more (the 40 ms pre-chick hold cost 40 ms of latency on
+        every stroke and the velocity floor catches those ghosts); kept for the callers."""
 
     def pedal_motion(self, t: float) -> int:
         cutoff = t - PEDAL_MOTION_MS / 1000
@@ -393,23 +398,9 @@ class State:
                 if hit is None:
                     self.other_notes.appendleft((msg.note, msg.velocity))
                 else:
-                    ref = self.pending if self.pending is not None else self.last_hat_hit
-                    hit.ghost_reason = ghost_reason(hit, self.last_chick_t, self.pedal_motion(t), ref)
-                    if not hit.hihat:
-                        self._commit(hit)             # drums and cymbals: no hold, no pedal rules
-                    elif hit.zone == "chick":
-                        if self.pending is not None:
-                            if not hit.ghost:
-                                self.pending.ghost_reason = "pre-chick"
-                            self._commit(self.pending)
-                            self.pending = None
-                        self._commit(hit)
-                    elif hit.ghost:
-                        self._commit(hit)
-                    else:
-                        if self.pending is not None:
-                            self._commit(self.pending)
-                        self.pending = hit
+                    hit.ghost_reason = ghost_reason(hit, self.last_chick_t, self.pedal_motion(t),
+                                                    self.last_hat_hit)
+                    self._commit(hit)
                 self.dirty = True
 
 
