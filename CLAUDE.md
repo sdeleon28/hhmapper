@@ -2,7 +2,14 @@
 
 Maps the whole TD-17 kit (hi-hat CC4 openness x zone, snare head / rimshot / cross-stick, toms, cymbals)
 to GetGood Drums notes in the GroupCtl map, sent through the virtual MIDI port "hhmapper" that Bitwig sees as a device.
-Run with `.venv/bin/python hhmapper.py --out`. Commits are allowed in this repo.
+Run with `.venv/bin/python hhmapper.py --out`.
+
+## Git: commit and push when a task is done (required)
+
+Commits are allowed here without asking. When a task is finished and verified, commit it
+and push to `origin` (current branch, `master`) without being asked; the same rule holds in
+`../drumhero`, whose `origin` is github `sdeleon28/batero`. If the repo has no `origin`
+yet (hhmapper as of 2026-09-12), commit and say so; do not add a remote on your own.
 
 ## Sibling project: drumhero
 
