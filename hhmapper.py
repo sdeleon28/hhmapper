@@ -120,6 +120,13 @@ KIT_VELOCITY_MIN = 8        # other pads: below this nothing is sent (sticks res
 # come as close as 44 ms at 63..85 % (fast alternation, 2026-09-09), so only the soft tier is
 # separable; the 42 ms one is accepted. (window ms, max velocity ratio) tiers, checked in order.
 ZONE_CROSSTALK = [(95, 0.58)]
+# Beater bounce on the kick (2026-09-19, drumhero's Pop punk course, burying the beater): the KD
+# pad throws it back and the module sends a kick nobody played, 36..60 ms after the stroke at
+# 12..54 % of it (a few up to 93 ms at 13..26 %) and a slower one 160..250 ms after at 12..48 %
+# (the beater settling on release). Measured over 5081 kick strokes in the run logs: no real kick
+# within 70 ms of another, none under 60 % of the previous within 250 ms. (window ms, max
+# velocity ratio to the last real kick) tiers; the reference stays the last real kick.
+KICK_BOUNCE = [(80, 0.6), (250, 0.4)]
 
 # Pedal CC value interpretation. Measured on this TD-17 (2026-09-06):
 # value rises as the pedal is pressed, 0 = fully open, 90 = fully closed.
@@ -271,18 +278,29 @@ def classify(note: int, velocity: int, pedal_cc: int, t: float = None):
     return Hit("kit", zone, note, velocity, pedal_cc, t)
 
 
-def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: Hit = None) -> str:
+def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: Hit = None,
+                 last_kick: Hit = None) -> str:
     """Why this hit should be ignored, or None if it looks real.
 
     pedal_motion: how much the CC moved within the last PEDAL_MOTION_MS.
     last_stroke: the previous real edge/body hit, for zone crosstalk.
+    last_kick: the previous real kick, for the beater bounce.
     """
     if hit.zone == "chick":
         if hit.velocity <= CHICK_GHOST_VELOCITY_MAX:
             return "soft chick"
         return None
     if not hit.hihat:
-        return "too soft" if hit.velocity < KIT_VELOCITY_MIN else None
+        if hit.velocity < KIT_VELOCITY_MIN:
+            return "too soft"
+        if hit.zone == "kick" and last_kick is not None:
+            dt = (hit.t - last_kick.t) * 1000
+            for window_ms, ratio in KICK_BOUNCE:
+                if dt <= window_ms:
+                    if hit.velocity <= ratio * last_kick.velocity:
+                        return "beater bounce"
+                    break
+        return None
     if hit.velocity <= GHOST_VELOCITY_MAX:
         return "too soft"
     if last_chick_t is not None:
@@ -357,6 +375,7 @@ class State:
         self.last_chick_t = None
         self.last_hit = None             # last REAL hit (ghosts never land here)
         self.last_hat_hit = None         # last real hi-hat stick hit, the zone-crosstalk reference
+        self.last_kick = None            # last real kick, the beater-bounce reference
         self.history = deque(maxlen=HISTORY_LEN)   # real and ghost hits, for the table
         self.other_notes = deque(maxlen=4)
         self.dirty = True
@@ -369,6 +388,8 @@ class State:
                 self.last_chick_t = hit.t
             elif hit.hihat:
                 self.last_hat_hit = hit
+            elif hit.zone == "kick":
+                self.last_kick = hit
             self.sender.send(hit)
         self.dirty = True
 
@@ -399,7 +420,7 @@ class State:
                     self.other_notes.appendleft((msg.note, msg.velocity))
                 else:
                     hit.ghost_reason = ghost_reason(hit, self.last_chick_t, self.pedal_motion(t),
-                                                    self.last_hat_hit)
+                                                    self.last_hat_hit, self.last_kick)
                     self._commit(hit)
                 self.dirty = True
 

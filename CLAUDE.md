@@ -78,6 +78,12 @@ Resting sticks on a pad: 4..14.
   <= 58 % of its velocity: drop (zone crosstalk; the reference stays the last real
   stroke, so chained ghosts fall too). The 42 ms / 70..76 % ghost overlaps real
   taps and is let through on purpose.
+- kick note within 80 ms after the last real kick at <= 60 % of its velocity, or within
+  250 ms at <= 40 %: drop (beater bounce, since 2026-09-19: burying the beater on the KD pad
+  throws it back, 36..60 ms later at 12..54 %, a slower settle 160..250 ms later; on an
+  acoustic drum a buried beater sounds once. Over 5081 logged kick strokes no real kick came
+  within 70 ms of another or under 60 % of the previous within 250 ms; the fastest chart
+  figure is 94 ms apart. The reference stays the last real kick.)
 - chick with velocity <= 20: drop (hhmapper)
 - any note with velocity < 8: drop (drumhero)
 
