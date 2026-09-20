@@ -119,12 +119,13 @@ KIT_VELOCITY_MIN = 8        # other pads: below this nothing is sent (sticks res
 # never above 92 whatever the stroke's velocity (2026-09-19, 174 cases in ten days of drumhero's
 # MIDI trace, none a chart note; the ratio runs 0.7 at 120 to 1.4 at 55, so a ratio cannot
 # describe it): a note on the other zone within CROSSTALK_NEAR_MS at or under
-# CROSSTALK_NEAR_VELOCITY_MAX is that stroke heard twice. Late: 73..93 ms after at 35..56 %,
+# CROSSTALK_NEAR_VELOCITY_MAX is that stroke heard twice. Late: 73..111 ms after at 28..56 %
+# (the hardest strokes, 113..127, ring the longest: 95..111 ms, 2026-09-20),
 # where real doubles (44..90 ms at 63..85 %, 2026-09-09) overlap anything higher, so the ratio
 # stays 0.58. (window ms, max velocity ratio) tiers, checked in order.
 CROSSTALK_NEAR_MS = 50
 CROSSTALK_NEAR_VELOCITY_MAX = 95
-ZONE_CROSSTALK = [(95, 0.58)]
+ZONE_CROSSTALK = [(115, 0.58)]
 # Beater bounce on the kick (2026-09-19, drumhero's Pop punk course, burying the beater): the KD
 # pad throws it back and the module sends a kick nobody played, 36..60 ms after the stroke at
 # 12..54 % of it (a few up to 93 ms at 13..26 %) and a slower one 160..250 ms after at 12..48 %

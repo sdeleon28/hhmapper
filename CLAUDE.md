@@ -50,7 +50,7 @@ Closed (43/44), Open 2/3 (46/47), Pedal (48) in One Kit Wonder, Kontakt C3 = 60.
 | 3..8 ms after the chick, pedal moving fast | 46 | 48..94 | window after chick |
 | up to ~250 ms after the chick, pedal settling | 42 | 22..36 | settle window, soft closed note |
 | 8..48 ms after an edge stroke (the mass at 40..48), any strength | 42 or 46 | up to 92, whatever the stroke: 70 % of a 120, 140 % of a 55 | near crosstalk: 50 ms window, velocity cap |
-| 73..93 ms after an edge stroke, one or two of them, nearly every hard stroke | 42 | 35..56 % of the stroke | zone crosstalk |
+| 73..93 ms after an edge stroke, one or two of them, nearly every hard stroke; 95..111 ms after a 113..127 | 42 or 46 | 28..56 % of the stroke | zone crosstalk |
 | ~55 ms after a hard bow stroke, rare | 22 | ~40 % of the stroke | zone crosstalk |
 | chick double trigger ~110 ms after a chick | 44 | 16..20 | chick velocity floor |
 
@@ -81,9 +81,11 @@ Resting sticks on a pad: 4..14.
   figure being 178 ms. It costs the real double that lands edge then bow within 50 ms at 95
   or under; until that date it was let through for that double's sake, and a friend who
   plays every hat stroke hard on the edge got a stray per stroke.)
-- hi-hat stick note on the other zone than the previous stroke, within 95 ms at
+- hi-hat stick note on the other zone than the previous stroke, within 115 ms at
   <= 58 % of its velocity: drop (late zone crosstalk; the reference stays the last real
-  stroke, so chained ghosts fall too). Between 50 and 95 ms anything above 58 % overlaps
+  stroke, so chained ghosts fall too; 95 ms until 2026-09-20, when the hardest strokes,
+  113..127, were seen ringing the other zone at 95..111 ms and 28..50 %, six strays a
+  run on the kick gallop). Between 50 and 115 ms anything above 58 % overlaps
   real doubles (44..90 ms at 63..85 %) and is let through; it is about 30 strays in ten
   days.
 - kick note within 80 ms after the last real kick at <= 60 % of its velocity, or within
