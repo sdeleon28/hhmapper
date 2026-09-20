@@ -49,8 +49,9 @@ Closed (43/44), Open 2/3 (46/47), Pedal (48) in One Kit Wonder, Kontakt C3 = 60.
 | ~30 ms before the chick, pedal still at CC 0 | 46 | 7..22 | velocity floor |
 | 3..8 ms after the chick, pedal moving fast | 46 | 48..94 | window after chick |
 | up to ~250 ms after the chick, pedal settling | 42 | 22..36 | settle window, soft closed note |
+| 8..25 ms after a stroke, the other zone, one stroke read twice | 42 or 46 (or 22/26) | 0.7..1.5 x the stroke, up to 122 | within 30 ms: drop, any velocity |
 | 8..48 ms after an edge stroke (the mass at 40..48), any strength | 42 or 46 | up to 92, whatever the stroke: 70 % of a 120, 140 % of a 55 | near crosstalk: 50 ms window, velocity cap |
-| 73..93 ms after an edge stroke, one or two of them, nearly every hard stroke; 95..111 ms after a 113..127 | 42 or 46 | 28..56 % of the stroke | zone crosstalk |
+| 73..93 ms after an edge stroke, one or two of them, nearly every hard stroke; 95..111 ms after a 113..127 | 42 or 46 | 28..70 % of the stroke (a hat left open under double kick swings and reads higher) | zone crosstalk |
 | ~55 ms after a hard bow stroke, rare | 22 | ~40 % of the stroke | zone crosstalk |
 | chick double trigger ~110 ms after a chick | 44 | 16..20 | chick velocity floor |
 
@@ -74,6 +75,10 @@ Resting sticks on a pad: 4..14.
 - hi-hat stick note within 10 ms after a chick (44) with velocity < 100: drop (chick splash)
 - closed-hat note (42/22) within 250 ms after a chick with velocity <= 40: drop (pedal settling)
 - hi-hat stick note while CC4 moved >= 20 within the last 50 ms, velocity < 50: drop
+- hi-hat stick note on the other zone than the previous stroke, within 30 ms at any velocity:
+  drop (one stroke read on both zones, 2026-09-20 evening: 8..25 ms apart at 0.7..1.5 x, up to
+  122; nobody plays two hat strokes 30 ms apart; in the run logs 7 such, 6 strays, one GOOD
+  whose edge twin had the note anyway).
 - hi-hat stick note on the other zone than the previous stroke, within 50 ms at velocity
   <= 95: drop (near crosstalk, since 2026-09-19: one stroke heard twice, in Bitwig as two
   notes. Measured over ten days of drumhero's MIDI trace, 118k notes: 174 bow notes within
@@ -82,12 +87,15 @@ Resting sticks on a pad: 4..14.
   or under; until that date it was let through for that double's sake, and a friend who
   plays every hat stroke hard on the edge got a stray per stroke.)
 - hi-hat stick note on the other zone than the previous stroke, within 115 ms at
-  <= 58 % of its velocity: drop (late zone crosstalk; the reference stays the last real
+  <= 70 % of its velocity: drop (late zone crosstalk; the reference stays the last real
   stroke, so chained ghosts fall too; 95 ms until 2026-09-20, when the hardest strokes,
   113..127, were seen ringing the other zone at 95..111 ms and 28..50 %, six strays a
-  run on the kick gallop). Between 50 and 115 ms anything above 58 % overlaps
-  real doubles (44..90 ms at 63..85 %) and is let through; it is about 30 strays in ten
-  days.
+  run on the kick gallop; 58 % until that evening, when the run logs showed 51 escapes at
+  58..80 %, hat open or tight alike, 50 of them strays and one a chart note at 71 %: the
+  double-kick levels leave the hat open and swinging, and a chained 46 at 60 % took the
+  reference with it). This eats the soft real double the 2026-09-09 measurement kept
+  (44..90 ms at 63..85 %): the user chose one note over two. Above 70 % nothing is dropped
+  past 50 ms.
 - kick note within 80 ms after the last real kick at <= 60 % of its velocity, or within
   250 ms at <= 40 %: drop (beater bounce, since 2026-09-19: burying the beater on the KD pad
   throws it back, 36..60 ms later at 12..54 %, a slower settle 160..250 ms later; on an
