@@ -49,7 +49,7 @@ Closed (43/44), Open 2/3 (46/47), Pedal (48) in One Kit Wonder, Kontakt C3 = 60.
 | ~30 ms before the chick, pedal still at CC 0 | 46 | 7..22 | velocity floor |
 | 3..8 ms after the chick, pedal moving fast | 46 | 48..94 | window after chick |
 | up to ~250 ms after the chick, pedal settling | 42 | 22..36 | settle window, soft closed note |
-| 42 ms after a hard edge stroke | 42 or 46 | 70..76 % of the stroke | not separable, accepted (see below) |
+| 8..48 ms after an edge stroke (the mass at 40..48), any strength | 42 or 46 | up to 92, whatever the stroke: 70 % of a 120, 140 % of a 55 | near crosstalk: 50 ms window, velocity cap |
 | 73..93 ms after an edge stroke, one or two of them, nearly every hard stroke | 42 | 35..56 % of the stroke | zone crosstalk |
 | ~55 ms after a hard bow stroke, rare | 22 | ~40 % of the stroke | zone crosstalk |
 | chick double trigger ~110 ms after a chick | 44 | 16..20 | chick velocity floor |
@@ -74,10 +74,18 @@ Resting sticks on a pad: 4..14.
 - hi-hat stick note within 10 ms after a chick (44) with velocity < 100: drop (chick splash)
 - closed-hat note (42/22) within 250 ms after a chick with velocity <= 40: drop (pedal settling)
 - hi-hat stick note while CC4 moved >= 20 within the last 50 ms, velocity < 50: drop
+- hi-hat stick note on the other zone than the previous stroke, within 50 ms at velocity
+  <= 95: drop (near crosstalk, since 2026-09-19: one stroke heard twice, in Bitwig as two
+  notes. Measured over ten days of drumhero's MIDI trace, 118k notes: 174 bow notes within
+  50 ms of an edge stroke, none over 92, none a chart note, the charts' closest hi-hat
+  figure being 178 ms. It costs the real double that lands edge then bow within 50 ms at 95
+  or under; until that date it was let through for that double's sake, and a friend who
+  plays every hat stroke hard on the edge got a stray per stroke.)
 - hi-hat stick note on the other zone than the previous stroke, within 95 ms at
-  <= 58 % of its velocity: drop (zone crosstalk; the reference stays the last real
-  stroke, so chained ghosts fall too). The 42 ms / 70..76 % ghost overlaps real
-  taps and is let through on purpose.
+  <= 58 % of its velocity: drop (late zone crosstalk; the reference stays the last real
+  stroke, so chained ghosts fall too). Between 50 and 95 ms anything above 58 % overlaps
+  real doubles (44..90 ms at 63..85 %) and is let through; it is about 30 strays in ten
+  days.
 - kick note within 80 ms after the last real kick at <= 60 % of its velocity, or within
   250 ms at <= 40 %: drop (beater bounce, since 2026-09-19: burying the beater on the KD pad
   throws it back, 36..60 ms later at 12..54 %, a slower settle 160..250 ms later; on an
@@ -90,7 +98,10 @@ Resting sticks on a pad: 4..14.
 A change to a threshold goes to both repos and to this section. Validated 2026-09-09 by
 replaying two recorded takes (306 real strokes) through both filters: no real stroke
 dropped, every ghost above still caught. Record a take with `mido` (timestamps in ms)
-and replay it through `State` / `GhostFilter` before touching a number.
+and replay it through `State` / `GhostFilter` before touching a number. Since 2026-09-19 the
+MIDI trace (`~/Library/Logs/drumhero-midi.log`: wall time, note, velocity, the filter's
+reason or the judge, CC4) is the larger check: replay it and count what falls that was
+judged PERFECT / GOOD / OK.
 
 The articulation labels (tight/mid/open x body/edge, pedal chick) are shared
 verbatim: hhmapper's `OUTPUT_NOTES` keys and drumhero's `chart.HH_ARTS` (its

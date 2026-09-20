@@ -115,10 +115,15 @@ PEDAL_SETTLE_MS = 250       # closed-note hits this long after a chick...
 PEDAL_SETTLE_VELOCITY_MAX = 40  # ...at or below this velocity are the pedal settling (real ones: >= 56)
 CHICK_GHOST_VELOCITY_MAX = 20  # chick double-triggers come in at vel 16..20
 KIT_VELOCITY_MIN = 8        # other pads: below this nothing is sent (sticks resting on a pad read 4..14)
-# A hard stroke on one zone makes the other zone fire late: measured 42 ms after the stroke at
-# 70..76 % of its velocity, and 73..93 ms after at 35..56 %. Real bow taps after an edge accent
-# come as close as 44 ms at 63..85 % (fast alternation, 2026-09-09), so only the soft tier is
-# separable; the 42 ms one is accepted. (window ms, max velocity ratio) tiers, checked in order.
+# A hard stroke on one zone makes the other zone fire late. Near: 8..48 ms after the stroke,
+# never above 92 whatever the stroke's velocity (2026-09-19, 174 cases in ten days of drumhero's
+# MIDI trace, none a chart note; the ratio runs 0.7 at 120 to 1.4 at 55, so a ratio cannot
+# describe it): a note on the other zone within CROSSTALK_NEAR_MS at or under
+# CROSSTALK_NEAR_VELOCITY_MAX is that stroke heard twice. Late: 73..93 ms after at 35..56 %,
+# where real doubles (44..90 ms at 63..85 %, 2026-09-09) overlap anything higher, so the ratio
+# stays 0.58. (window ms, max velocity ratio) tiers, checked in order.
+CROSSTALK_NEAR_MS = 50
+CROSSTALK_NEAR_VELOCITY_MAX = 95
 ZONE_CROSSTALK = [(95, 0.58)]
 # Beater bounce on the kick (2026-09-19, drumhero's Pop punk course, burying the beater): the KD
 # pad throws it back and the module sends a kick nobody played, 36..60 ms after the stroke at
@@ -314,6 +319,8 @@ def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: 
         return "pedal moving"
     if last_stroke is not None and last_stroke.zone != "chick" and last_stroke.zone != hit.zone:
         dt = (hit.t - last_stroke.t) * 1000
+        if dt <= CROSSTALK_NEAR_MS and hit.velocity <= CROSSTALK_NEAR_VELOCITY_MAX:
+            return "zone crosstalk"
         for window_ms, ratio in ZONE_CROSSTALK:
             if dt <= window_ms:
                 if hit.velocity <= ratio * last_stroke.velocity:
