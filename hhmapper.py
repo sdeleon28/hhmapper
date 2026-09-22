@@ -137,6 +137,16 @@ ZONE_CROSSTALK = [(115, 0.70)]
 # within 70 ms of another, none under 60 % of the previous within 250 ms. (window ms, max
 # velocity ratio to the last real kick) tiers; the reference stays the last real kick.
 KICK_BOUNCE = [(80, 0.6), (250, 0.4)]
+# The snare pad heard twice (2026-09-22, drumhero's MIDI trace, "crosstalk in the snare"): a hard
+# stroke comes back on the SAME zone 41..60 ms later at 30..60 % of it, the median delay 51 ms on
+# every one of the thirteen days logged and the median ratio 0.40..0.45 (a pad retriggering, not a
+# hand); only strokes at 80 and over do it, and it is growing (0.04 % of a day's snare strokes on
+# 09-20, 2.65 % on 09-22), so the module's retrigger-cancel deserves a look too. The rim does the
+# same to itself, 21..50 ms later at 0.5..0.6; head and rim never rang each other (1106 snare notes
+# that day, not one 38/40 pair within 200 ms), so each zone keeps its own reference. 70 ms is under
+# the fastest snare figure drumhero's charts write (89 ms). (window ms, max velocity ratio) tiers.
+SNARE_ZONES = ("snare", "snare_rim")
+SNARE_BOUNCE = [(70, 0.6)]
 
 # Pedal CC value interpretation. Measured on this TD-17 (2026-09-06):
 # value rises as the pedal is pressed, 0 = fully open, 90 = fully closed.
@@ -289,12 +299,13 @@ def classify(note: int, velocity: int, pedal_cc: int, t: float = None):
 
 
 def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: Hit = None,
-                 last_kick: Hit = None) -> str:
+                 last_kick: Hit = None, last_snare: dict = None) -> str:
     """Why this hit should be ignored, or None if it looks real.
 
     pedal_motion: how much the CC moved within the last PEDAL_MOTION_MS.
     last_stroke: the previous real edge/body hit, for zone crosstalk.
     last_kick: the previous real kick, for the beater bounce.
+    last_snare: zone -> the previous real snare hit on it, for the snare rebound.
     """
     if hit.zone == "chick":
         if hit.velocity <= CHICK_GHOST_VELOCITY_MAX:
@@ -310,6 +321,15 @@ def ghost_reason(hit: Hit, last_chick_t: float, pedal_motion: int, last_stroke: 
                     if hit.velocity <= ratio * last_kick.velocity:
                         return "beater bounce"
                     break
+        if hit.zone in SNARE_ZONES and last_snare:
+            prev = last_snare.get(hit.zone)
+            if prev is not None:
+                dt = (hit.t - prev.t) * 1000
+                for window_ms, ratio in SNARE_BOUNCE:
+                    if dt <= window_ms:
+                        if hit.velocity <= ratio * prev.velocity:
+                            return "snare rebound"
+                        break
         return None
     if hit.velocity <= GHOST_VELOCITY_MAX:
         return "too soft"
@@ -388,6 +408,7 @@ class State:
         self.last_hit = None             # last REAL hit (ghosts never land here)
         self.last_hat_hit = None         # last real hi-hat stick hit, the zone-crosstalk reference
         self.last_kick = None            # last real kick, the beater-bounce reference
+        self.last_snare = {}             # zone -> last real snare hit on it, the rebound reference
         self.history = deque(maxlen=HISTORY_LEN)   # real and ghost hits, for the table
         self.other_notes = deque(maxlen=4)
         self.dirty = True
@@ -402,6 +423,8 @@ class State:
                 self.last_hat_hit = hit
             elif hit.zone == "kick":
                 self.last_kick = hit
+            elif hit.zone in SNARE_ZONES:
+                self.last_snare[hit.zone] = hit
             self.sender.send(hit)
         self.dirty = True
 
@@ -432,7 +455,7 @@ class State:
                     self.other_notes.appendleft((msg.note, msg.velocity))
                 else:
                     hit.ghost_reason = ghost_reason(hit, self.last_chick_t, self.pedal_motion(t),
-                                                    self.last_hat_hit, self.last_kick)
+                                                    self.last_hat_hit, self.last_kick, self.last_snare)
                     self._commit(hit)
                 self.dirty = True
 

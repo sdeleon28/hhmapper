@@ -102,6 +102,18 @@ Resting sticks on a pad: 4..14.
   acoustic drum a buried beater sounds once. Over 5081 logged kick strokes no real kick came
   within 70 ms of another or under 60 % of the previous within 250 ms; the fastest chart
   figure is 94 ms apart. The reference stays the last real kick.)
+- snare note within 70 ms after the last real stroke **on the same zone** (head 38, rim 40) at
+  <= 60 % of its velocity: drop (pad rebound, since 2026-09-22: a hard stroke comes back 41..60 ms
+  later at 30..60 %, the median delay 51 ms on every one of the thirteen days of the MIDI trace and
+  the median ratio 0.40..0.45, which is a pad retriggering, not a hand. Only strokes at 80 and over
+  do it, and it is growing: 0.04 % of the day's snare strokes on 09-20, 1.78 % on 09-21, 2.65 % on
+  09-22, the highest logged, so the module's retrigger-cancel is worth a look as well. Head and rim
+  do not ring each other (1106 snare notes that day, not one 38/40 pair within 200 ms), hence a
+  reference per zone; the reference stays the last real stroke, so a chain falls whole. Over the
+  whole trace the rule drops 367 strays and 81 notes the judge had accepted, but 78 of those 81 are
+  followed within 200 ms by a louder snare stray: the echo had taken the chart note and the real
+  stroke behind it was counted a stray, so dropping it gives the note back. The fastest snare
+  figure any chart writes is 89 ms apart.)
 - chick with velocity <= 20: drop (hhmapper)
 - any note with velocity < 8: drop (drumhero)
 
