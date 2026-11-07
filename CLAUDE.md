@@ -8,20 +8,20 @@ Run with `.venv/bin/python hhmapper.py --out`.
 
 Commits are allowed here without asking. When a task is finished and verified, commit it
 and push to `origin` (current branch, `master`) without being asked; the same rule holds in
-`../drumhero`, whose `origin` is github `sdeleon28/batero`. If the repo has no `origin`
+`../bathero`, whose `origin` is github `sdeleon28/batero`. If the repo has no `origin`
 yet (hhmapper as of 2026-09-12), commit and say so; do not add a remote on your own.
 
-## Sibling project: drumhero
+## Sibling project: bathero
 
-`../drumhero` (Guitar Hero style trainer) is often worked on from this directory.
-After any change there, run `../drumhero/deploy.sh`: it rebuilds `/Applications/drumhero.app`
+`../bathero` (Guitar Hero style trainer) is often worked on from this directory.
+After any change there, run `../bathero/deploy.sh`: it rebuilds `/Applications/bathero.app`
 and relaunches it, because the user opens the game through an rcmd shortcut bound to that
-app and expects it to always run the latest code. See `../drumhero/CLAUDE.md`.
+app and expects it to always run the latest code. See `../bathero/CLAUDE.md`.
 
 ## The hi-hat gesture (Roland TD-17 with VH-10, measured 2026-09-06/07)
 
 This is the ground truth for both repos. hhmapper turns it into One Kit Wonder
-articulations for Bitwig; drumhero turns it into game hits. Both must agree.
+articulations for Bitwig; bathero turns it into game hits. Both must agree.
 
 **What the module sends.**
 
@@ -68,7 +68,7 @@ alternation, chick + stroke together, open hats; the rules must keep all of thes
 
 Resting sticks on a pad: 4..14.
 
-**Filter rules, identical in both repos** (hhmapper.py constants, drumhero/ghost.py):
+**Filter rules, identical in both repos** (hhmapper.py constants, bathero/ghost.py):
 
 - hi-hat stick note with velocity < 25: drop (both repos; hhmapper no longer holds
   strokes 40 ms for a following chick, that hold cost 40 ms of latency on every stroke)
@@ -81,7 +81,7 @@ Resting sticks on a pad: 4..14.
   whose edge twin had the note anyway).
 - hi-hat stick note on the other zone than the previous stroke, within 50 ms at velocity
   <= 95: drop (near crosstalk, since 2026-09-19: one stroke heard twice, in Bitwig as two
-  notes. Measured over ten days of drumhero's MIDI trace, 118k notes: 174 bow notes within
+  notes. Measured over ten days of bathero's MIDI trace, 118k notes: 174 bow notes within
   50 ms of an edge stroke, none over 92, none a chart note, the charts' closest hi-hat
   figure being 178 ms. It costs the real double that lands edge then bow within 50 ms at 95
   or under; until that date it was let through for that double's sake, and a friend who
@@ -115,21 +115,21 @@ Resting sticks on a pad: 4..14.
   stroke behind it was counted a stray, so dropping it gives the note back. The fastest snare
   figure any chart writes is 89 ms apart.)
 - chick with velocity <= 20: drop (hhmapper)
-- any note with velocity < 8: drop (drumhero)
+- any note with velocity < 8: drop (bathero)
 
 A change to a threshold goes to both repos and to this section. Validated 2026-09-09 by
 replaying two recorded takes (306 real strokes) through both filters: no real stroke
 dropped, every ghost above still caught. Record a take with `mido` (timestamps in ms)
 and replay it through `State` / `GhostFilter` before touching a number. Since 2026-09-19 the
-MIDI trace (`~/Library/Logs/drumhero-midi.log`: wall time, note, velocity, the filter's
+MIDI trace (`~/Library/Logs/bathero-midi.log`: wall time, note, velocity, the filter's
 reason or the judge, CC4) is the larger check: replay it and count what falls that was
 judged PERFECT / GOOD / OK.
 
 The articulation labels (tight/mid/open x body/edge, pedal chick) are shared
-verbatim: hhmapper's `OUTPUT_NOTES` keys and drumhero's `chart.HH_ARTS` (its
+verbatim: hhmapper's `OUTPUT_NOTES` keys and bathero's `chart.HH_ARTS` (its
 hi-hat lessons ask for them by name and judge them). Rename in both or neither.
 
-**Kit wizard rule (drumhero).** The wizard has one step per zone of the TD-17
+**Kit wizard rule (bathero).** The wizard has one step per zone of the TD-17
 (17 zones, `chart.ZONES`): the hi-hat has three, bow, edge and pedal. In the
 bow step hearing 42 or 46 assigns both; in the edge step 22 or 26 assigns
 both; 44 is only assigned in the pedal step. A number heard in two steps goes
@@ -140,7 +140,7 @@ no debounce (the user wants the game to feel instant); every hit above 15 is hea
 
 ## The rest of the kit: output map (hhmapper, 2026-09-07)
 
-Input zones come from drumhero's kit file (`~/.config/drumhero/kit.json`, same zone
+Input zones come from bathero's kit file (`~/.config/bathero/kit.json`, same zone
 keys; factory TD-17 numbers as fallback, `--kit FILE` overrides). Note 37 is always
 snare cross-stick.
 

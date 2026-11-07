@@ -13,7 +13,7 @@ Usage (from the project venv):
     .venv/bin/python hhmapper.py --raw       # dump every incoming MIDI message
     .venv/bin/python hhmapper.py --probe --out   # play every output note in turn, to check the map by ear
     .venv/bin/python hhmapper.py --port X    # pick an input port by substring (default: TD-17)
-    .venv/bin/python hhmapper.py --kit FILE  # zone -> input notes (default: drumhero's ~/.config/drumhero/kit.json)
+    .venv/bin/python hhmapper.py --kit FILE  # zone -> input notes (default: bathero's ~/.config/bathero/kit.json)
 """
 import argparse
 import json
@@ -41,9 +41,9 @@ HH_CC = 4  # hi-hat pedal position controller (CC#4 on Roland modules)
 CLOSED_HAT_NOTES = {42, 22}  # the numbers the module picks when its own threshold says closed
 
 # Input notes per zone of the kit. The defaults are the TD-17 factory numbers, confirmed
-# on the module on 2026-09-06/07; drumhero's kit wizard saves the same zone keys to
-# ~/.config/drumhero/kit.json and load_kit() prefers that file, so both programs agree.
-KIT_PATH = os.path.expanduser("~/.config/drumhero/kit.json")
+# on the module on 2026-09-06/07; bathero's kit wizard saves the same zone keys to
+# ~/.config/bathero/kit.json and load_kit() prefers that file, so both programs agree.
+KIT_PATH = os.path.expanduser("~/.config/bathero/kit.json")
 FACTORY_KIT = {
     "kick": [36, 35], "snare": [38], "snare_rim": [40], "snare_xstick": [37],
     "hihat": [42, 46], "hihat_edge": [22, 26], "hihat_pedal": [44],
@@ -60,7 +60,7 @@ ZONE_LABELS = {
 
 
 def load_kit(path: str = KIT_PATH) -> dict:
-    """Zone -> input note numbers. The drumhero kit file on top of the factory table
+    """Zone -> input note numbers. The bathero kit file on top of the factory table
     (zones the wizard skipped keep their factory numbers); 37 is always cross-stick."""
     kit = {k: list(v) for k, v in FACTORY_KIT.items()}
     try:
@@ -116,12 +116,12 @@ PEDAL_SETTLE_VELOCITY_MAX = 40  # ...at or below this velocity are the pedal set
 CHICK_GHOST_VELOCITY_MAX = 20  # chick double-triggers come in at vel 16..20
 KIT_VELOCITY_MIN = 8        # other pads: below this nothing is sent (sticks resting on a pad read 4..14)
 # A hard stroke on one zone makes the other zone fire late. Near: 8..48 ms after the stroke,
-# never above 92 whatever the stroke's velocity (2026-09-19, 174 cases in ten days of drumhero's
+# never above 92 whatever the stroke's velocity (2026-09-19, 174 cases in ten days of bathero's
 # MIDI trace, none a chart note; the ratio runs 0.7 at 120 to 1.4 at 55, so a ratio cannot
 # describe it): a note on the other zone within CROSSTALK_NEAR_MS at or under
 # CROSSTALK_NEAR_VELOCITY_MAX is that stroke heard twice. Late: 73..111 ms after at 28..56 %
 # (the hardest strokes, 113..127, ring the longest: 95..111 ms, 2026-09-20),
-# at up to 0.70 (drumhero's run logs, 2026-09-20 evening: 51 escapes between 0.58 and 0.80, hat
+# at up to 0.70 (bathero's run logs, 2026-09-20 evening: 51 escapes between 0.58 and 0.80, hat
 # open or tight alike, one of them a chart note, at 0.71). The double the 2026-09-09 measurement
 # kept (44..90 ms at 63..85 %) is now partly eaten; the user chose one note over two. Within
 # 30 ms the other zone falls at any velocity: 8..25 ms at 0.7..1.5 x, one stroke read on both
@@ -130,21 +130,21 @@ CROSSTALK_ONE_STROKE_MS = 30    # two zones this close are one stroke read twice
 CROSSTALK_NEAR_MS = 50
 CROSSTALK_NEAR_VELOCITY_MAX = 95
 ZONE_CROSSTALK = [(115, 0.70)]
-# Beater bounce on the kick (2026-09-19, drumhero's Pop punk course, burying the beater): the KD
+# Beater bounce on the kick (2026-09-19, bathero's Pop punk course, burying the beater): the KD
 # pad throws it back and the module sends a kick nobody played, 36..60 ms after the stroke at
 # 12..54 % of it (a few up to 93 ms at 13..26 %) and a slower one 160..250 ms after at 12..48 %
 # (the beater settling on release). Measured over 5081 kick strokes in the run logs: no real kick
 # within 70 ms of another, none under 60 % of the previous within 250 ms. (window ms, max
 # velocity ratio to the last real kick) tiers; the reference stays the last real kick.
 KICK_BOUNCE = [(80, 0.6), (250, 0.4)]
-# The snare pad heard twice (2026-09-22, drumhero's MIDI trace, "crosstalk in the snare"): a hard
+# The snare pad heard twice (2026-09-22, bathero's MIDI trace, "crosstalk in the snare"): a hard
 # stroke comes back on the SAME zone 41..60 ms later at 30..60 % of it, the median delay 51 ms on
 # every one of the thirteen days logged and the median ratio 0.40..0.45 (a pad retriggering, not a
 # hand); only strokes at 80 and over do it, and it is growing (0.04 % of a day's snare strokes on
 # 09-20, 2.65 % on 09-22), so the module's retrigger-cancel deserves a look too. The rim does the
 # same to itself, 21..50 ms later at 0.5..0.6; head and rim never rang each other (1106 snare notes
 # that day, not one 38/40 pair within 200 ms), so each zone keeps its own reference. 70 ms is under
-# the fastest snare figure drumhero's charts write (89 ms). (window ms, max velocity ratio) tiers.
+# the fastest snare figure bathero's charts write (89 ms). (window ms, max velocity ratio) tiers.
 SNARE_ZONES = ("snare", "snare_rim")
 SNARE_BOUNCE = [(70, 0.6)]
 
@@ -608,7 +608,7 @@ def main():
     ap.add_argument("--out", nargs="?", const=OUTPUT_VIRTUAL_NAME, default=None,
                     help=f"send mapped notes: no value = create the virtual port '{OUTPUT_VIRTUAL_NAME}' that Bitwig "
                          "sees as a MIDI input; a value = an existing output port (substring), e.g. an IAC bus")
-    ap.add_argument("--kit", default=KIT_PATH, help="zone -> input notes JSON (drumhero's kit file)")
+    ap.add_argument("--kit", default=KIT_PATH, help="zone -> input notes JSON (bathero's kit file)")
     ap.add_argument("--probe", action="store_true", help="play every output note in turn with its label (needs --out)")
     args = ap.parse_args()
 
