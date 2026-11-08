@@ -186,7 +186,7 @@ OUTPUT_NOTES = {
     "snare rimshot": 63,     # Snare 2  (rim hit at or above RIM_SOFT_HARD_THRESHOLD)
     "snare cross-stick": 30, # M&M2 Cross Stick (no editor row)
     "rack tom": 66,          # Tom 1
-    "rack tom rim": 66,      # Tom 1 (no rim articulation)
+    "rack tom rim": 100,     # not in the GGD map: OKW stays silent, Bitwig routes 100 to its own rim sound
     "floor tom": 71,         # Tom 3
     "floor tom rim": 71,     # Tom 3
     # cymbals
