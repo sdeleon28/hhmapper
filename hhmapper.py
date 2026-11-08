@@ -174,7 +174,7 @@ OUTPUT_CHANNEL = 9                  # 0-based, so 9 = MIDI channel 10
 OUTPUT_NOTES = {
     # hi-hat: openness x zone
     "tight body": 55,        # HH1  Tight Tip
-    "tight edge": 55,        # HH1  Tight Tip (M&M2 has Tight Edge at 10, outside the editor)
+    "tight edge": 58,        # OKW Edge Tight (A#2, its own note so the edge sounds like the edge)
     "mid body": 59,          # HH2  closed (the M&M2 preset file has Closed Tip at 53; see README)
     "mid edge": 59,          # HH2
     "open body": 54,         # HH4  Open 1
