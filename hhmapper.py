@@ -198,9 +198,6 @@ OUTPUT_NOTES = {
     "crash R bow": 82,       # Crash 2
     "crash R edge": 82,      # Crash 2 (China is 77 if you would rather have it here)
 }
-# The bark: a pedal chick also sends a tight hat at velocity 1 (barely audible), so OKW's hi-hat
-# choke cuts a ringing open hat when the foot closes. None = chick only.
-CHICK_CHOKE = (55, 1)
 OUTPUT_NOTE_LENGTH_MS = 30          # note_off is sent this long after note_on
 
 # UI
@@ -386,9 +383,12 @@ class Sender:
         note = OUTPUT_NOTES.get(hit.label)
         if note is None:
             return
-        if hit.label == "pedal chick" and CHICK_CHOKE:
-            self.send_note(*CHICK_CHOKE)
         self.send_note(note, hit.out_velocity)
+
+    def send_cc(self, control: int, value: int):
+        """The pedal position goes out as it came in, so OKW's HI-HAT CC POS. can learn it (the bark)."""
+        if self.port is not None:
+            self.port.send(mido.Message("control_change", channel=OUTPUT_CHANNEL, control=control, value=value))
 
     def send_note(self, note: int, velocity: int):
         self.port.send(mido.Message("note_on", channel=OUTPUT_CHANNEL, note=note, velocity=velocity))
@@ -454,6 +454,7 @@ class State:
                 self.pedal_cc = msg.value
                 self.cc_trail.append((t, msg.value))
                 self.dirty = True
+                self.sender.send_cc(HH_CC, msg.value)
             elif msg.type == "note_on" and msg.velocity > 0:
                 hit = classify(msg.note, msg.velocity, self.pedal_cc, t)
                 if hit is None:
