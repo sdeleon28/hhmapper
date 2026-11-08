@@ -198,6 +198,9 @@ OUTPUT_NOTES = {
     "crash R bow": 82,       # Crash 2
     "crash R edge": 82,      # Crash 2 (China is 77 if you would rather have it here)
 }
+# The bark: a pedal chick also sends a tight hat at velocity 1 (barely audible), so OKW's hi-hat
+# choke cuts a ringing open hat when the foot closes. None = chick only.
+CHICK_CHOKE = (55, 1)
 OUTPUT_NOTE_LENGTH_MS = 30          # note_off is sent this long after note_on
 
 # UI
@@ -383,6 +386,8 @@ class Sender:
         note = OUTPUT_NOTES.get(hit.label)
         if note is None:
             return
+        if hit.label == "pedal chick" and CHICK_CHOKE:
+            self.send_note(*CHICK_CHOKE)
         self.send_note(note, hit.out_velocity)
 
     def send_note(self, note: int, velocity: int):
