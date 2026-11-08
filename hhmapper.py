@@ -95,7 +95,7 @@ _rebind_kit()
 
 # Snare rim, from the TD17Remapper Bitwig script: a soft rim hit is a cross-stick, a hard one
 # a rimshot, each with its velocity spread over the full range.
-RIM_SOFT_HARD_THRESHOLD = 50   # rim velocity below this = cross-stick
+RIM_SOFT_HARD_THRESHOLD = 70   # rim velocity below this = cross-stick
 RIMSHOT_VELOCITY_MIN = 99      # rimshots are sent at this velocity or more
 SNARE_HEAD_VELOCITY_MAX = 98   # head hits never reach the rimshot velocity band
 
