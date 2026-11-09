@@ -172,3 +172,12 @@ TD17Remapper Bitwig script in the same repo.
 
 `hhmapper.py --probe --out` plays every output note with its label, to check the
 map by ear on both the One Kit Wonder (Kontakt) and Modern & Massive 2 tracks.
+
+## Optimistic chick (2026-11-08)
+
+The TD-17 sends 44 only for a firm stomp, so a slow close left an open hat ringing in OKW. When CC4
+reaches `PEDAL_CLOSED_VALUE` (90) after an open stroke (closedness under `TIGHT_MIN`) and no chick
+in the last `AUTO_CHICK_SWALLOW_MS`, hhmapper sends a pedal chick at once at `AUTO_CHICK_VELOCITY`
+(40), no wait. The module's own 44 within 60 ms after it is swallowed unless louder (a hard stomp
+still sounds hard). A resting pedal jittering 89/90 sends nothing (no open stroke since the last chick).
+bathero is unaffected: it judges the module's 44.

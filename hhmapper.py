@@ -153,6 +153,11 @@ SNARE_BOUNCE = [(70, 0.6)]
 # "About halfway" by feel landed around 8..28, so the response is nonlinear.
 CLOSED_IS_HIGH = True
 PEDAL_CLOSED_VALUE = 90
+# Optimistic chick (2026-11-08): the module only sends 44 for a firm stomp, so a slow close left the open
+# hat ringing. When CC4 reaches PEDAL_CLOSED_VALUE after an open stroke, a chick goes out at once; the
+# module's own 44 arriving within AUTO_CHICK_SWALLOW_MS is swallowed unless it is louder.
+AUTO_CHICK_VELOCITY = 40
+AUTO_CHICK_SWALLOW_MS = 60
 
 # Openness thresholds on the "closedness" scale (same as the CC value here).
 TIGHT_MIN = 80   # closedness >= TIGHT_MIN  -> tight
@@ -421,6 +426,8 @@ class State:
         self.last_snare = {}             # zone -> last real snare hit on it, the rebound reference
         self.history = deque(maxlen=HISTORY_LEN)   # real and ghost hits, for the table
         self.other_notes = deque(maxlen=4)
+        self.open_since_chick = False    # an open stroke rang since the last chick: closing should choke it
+        self.auto_chick_t = None         # when the optimistic chick went out
         self.dirty = True
 
     def _commit(self, hit: Hit):
@@ -429,8 +436,17 @@ class State:
             self.last_hit = hit
             if hit.zone == "chick":
                 self.last_chick_t = hit.t
+                self.open_since_chick = False
+                auto = self.auto_chick_t
+                if (auto is not None and (hit.t - auto) * 1000 <= AUTO_CHICK_SWALLOW_MS
+                        and hit.out_velocity <= AUTO_CHICK_VELOCITY):
+                    hit.ghost_reason = "swallowed: the optimistic chick already went out"
+                    self.dirty = True
+                    return
             elif hit.hihat:
                 self.last_hat_hit = hit
+                if closedness(hit.cc) < TIGHT_MIN:
+                    self.open_since_chick = True
             elif hit.zone == "kick":
                 self.last_kick = hit
             elif hit.zone in SNARE_ZONES:
@@ -456,6 +472,12 @@ class State:
             t = time.time()
         with self.lock:
             if msg.type == "control_change" and msg.control == HH_CC:
+                was = closedness(self.pedal_cc)
+                if (was < PEDAL_CLOSED_VALUE <= closedness(msg.value) and self.open_since_chick
+                        and (self.last_chick_t is None or (t - self.last_chick_t) * 1000 > AUTO_CHICK_SWALLOW_MS)):
+                    self.sender.send_note(OUTPUT_NOTES["pedal chick"], AUTO_CHICK_VELOCITY) if self.sender.port else None
+                    self.auto_chick_t = self.last_chick_t = t
+                    self.open_since_chick = False
                 self.pedal_cc = msg.value
                 self.cc_trail.append((t, msg.value))
                 self.dirty = True
