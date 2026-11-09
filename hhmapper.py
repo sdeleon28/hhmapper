@@ -262,6 +262,11 @@ class Hit:
         """Velocity sent: rim hits are spread over the cross-stick or rimshot band, head
         hits stay under the rimshot band (TD17Remapper's rule)."""
         v = self.velocity
+        # The TD-17 sends a soft rim hit as 37 and a harder one as 40 (around velocity 30);
+        # both are the cross-stick below the rimshot threshold, so they share one velocity
+        # curve, or the sound jumped where the module switched notes.
+        if self.zone == "snare_xstick":
+            return _scale(min(v, RIM_SOFT_HARD_THRESHOLD - 1), 1, RIM_SOFT_HARD_THRESHOLD - 1, 1, 127)
         if self.zone == "snare_rim":
             if v < RIM_SOFT_HARD_THRESHOLD:
                 return _scale(v, 1, RIM_SOFT_HARD_THRESHOLD - 1, 1, 127)
